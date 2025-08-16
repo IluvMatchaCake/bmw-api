@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import {createBmw, deleteBmw, updateBmw} from "../controllers/bmw.controller.js";
+import authorize from "../middlewares/auth.middleware.js";
 
 const bmwRouter = Router();
 
@@ -6,11 +8,11 @@ bmwRouter.get('/', (req, res) => res.send({title:'GET all models'}));
 
 bmwRouter.get('/:id', (req, res) => res.send({title:'GET model details'}));
 
-bmwRouter.post('/', (req, res) => res.send({title:'CREATE model'}));
+bmwRouter.post('/', authorize, createBmw);
 
-bmwRouter.put('/:id', (req, res) => res.send({title:'UPDATE model'}));
+bmwRouter.put('/:id', authorize, updateBmw);
 
-bmwRouter.delete('/:id', (req, res) => res.send({title:'DELETE model'}));
+bmwRouter.delete('/:id', authorize, deleteBmw);
 
 export default bmwRouter;
 
