@@ -51,10 +51,11 @@ export const signUp = async (req, res, next) => {
 
         res.cookie("token", token, {
             httpOnly: true,
-            secure: isProd,                      // true in prod (HTTPS)
-            sameSite: isProd ? "none" : "lax",   // "none" for cross-site prod
+            secure: isProd,
+            sameSite: process.env.COOKIE_SAME_SITE || (isProd ? "none" : "lax"),
+            domain: process.env.COOKIE_DOMAIN || undefined,
             maxAge: 1000 * 60 * 60,              // 1h
-            // domain: ".yourdomain.com",        // if using subdomains app./api.
+
         });
 
 
@@ -113,10 +114,11 @@ export const signIn = async (req, res, next) => {
 
         res.cookie("token", token, {
             httpOnly: true,
-            secure: isProd,                      // true in prod (HTTPS)
-            sameSite: isProd ? "none" : "lax",   // "none" for cross-site prod
+            secure: isProd,
+            sameSite: process.env.COOKIE_SAME_SITE || (isProd ? "none" : "lax"),
+            domain: process.env.COOKIE_DOMAIN || undefined,
             maxAge: 1000 * 60 * 60,              // 1h
-            // domain: ".yourdomain.com",        // if using subdomains app./api.
+
         });
 
 // then your JSON response (omit password)
@@ -140,8 +142,9 @@ export const signOut = async (req, res, next) => {
         res.clearCookie("token", {
             httpOnly: true,
             secure: isProd,
-            sameSite: isProd ? "none" : "lax",
-            // domain: ".yourdomain.com",
+            sameSite: process.env.COOKIE_SAME_SITE || (isProd ? "none" : "lax"),
+            domain: process.env.COOKIE_DOMAIN || undefined,
+
         });
         return res.status(200).json({ success: true, message: "Signed out" });
     } catch (err) {
