@@ -1,46 +1,95 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import User from "../models/user.model.js";
+import Profile from "../models/profile.model.js";
 import jwt from "jsonwebtoken";
 import {JWT_EXPIRES_IN, JWT_SECRET} from "../config/env.js";
 
+
 export const signUp = async (req, res, next) => {
     const session = await mongoose.startSession();
-    session.startTransaction();
+    let user;
 
     try {
-        const{name, email, password} = req.body;
+        await session.withTransaction(async () => {
+            const { name, email, password } = req.body;
 
-        const existingUser = await User.findOne({ email });
+            if ("isAdmin" in req.body) {
+                const err = new Error("isAdmin cannot be set at signup");
+                err.statusCode = 400;
+                throw err;
+            }
 
-        if(existingUser){
-            const error = new Error('User already exists');
-            error.statusCode = 409;
-            throw error;
-        }
+            // Check existence inside the txn
+            const existing = await User.findOne({ email }).session(session);
+            if (existing) {
+                const error = new Error("User already exists");
+                error.statusCode = 409;
+                throw error;
+            }
 
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
+            const hashedPassword = await bcrypt.hash(password, 10);
 
-        const newUsers = await User.create([{name, email, password:hashedPassword}], { session });
+            // Create user but add another safeguard for admin permission
+            user = await User.create(
+                { name, email, password: hashedPassword, isAdmin: false },
+                { session }
+            );
 
-        const token = jwt.sign({userId:newUsers[0]._id}, JWT_SECRET, {expiresIn: JWT_EXPIRES_IN});
+            // Create profile
+            await Profile.create(
+                { user: user._id, bio: "", avatarUrl: "" },
+                { session }
+            );
+            //set write concern to majority to prevent crashes and data loss
+        }, { readConcern: { level: "local" }, writeConcern: { w: "majority" } });
 
-        await session.commitTransaction();
-        session.endSession();
+        // Send response after txn succeeds
+        const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
-        res.status(201).json({success: true, message: 'User successfully created!', data:{token, user:newUsers[0],}});
-    }catch(error) {
-        await session.abortTransaction();
-        session.endSession();
+        const isProd = process.env.NODE_ENV === "production";
+
+        res.cookie("token", token, {
+            httpOnly: true,
+            secure: isProd,                      // true in prod (HTTPS)
+            sameSite: isProd ? "none" : "lax",   // "none" for cross-site prod
+            maxAge: 1000 * 60 * 60,              // 1h
+            // domain: ".yourdomain.com",        // if using subdomains app./api.
+        });
+
+
+        res.status(201).json({
+            success: true,
+            message: "User successfully created!",
+            data: {
+                token,
+                user: {
+                    id: user._id,
+                    name: user.name,
+                    email: user.email,
+                    isAdmin: user.isAdmin,
+                    createdAt: user.createdAt,
+                    updatedAt: user.updatedAt,
+                },
+            },
+        });
+    } catch (error) {
         next(error);
+    } finally {
+        session.endSession();
     }
-
-}
+};
 
 export const signIn = async (req, res, next) => {
     try{
+
         const{ email, password } = req.body;
+
+        if ('isAdmin' in req.body) {
+            const err = new Error('isAdmin cannot be set at sign-in');
+            err.statusCode = 400;
+            throw err;
+        }
 
         const user = await User.findOne({email});
 
@@ -60,17 +109,43 @@ export const signIn = async (req, res, next) => {
 
         const token = jwt.sign({userId:user._id}, JWT_SECRET, {expiresIn: JWT_EXPIRES_IN});
 
-        res.status(200).json({sucess: true, message: 'User signed in succcessfully',
-            data:{token, user}});
+        const isProd = process.env.NODE_ENV === "production";
+
+        res.cookie("token", token, {
+            httpOnly: true,
+            secure: isProd,                      // true in prod (HTTPS)
+            sameSite: isProd ? "none" : "lax",   // "none" for cross-site prod
+            maxAge: 1000 * 60 * 60,              // 1h
+            // domain: ".yourdomain.com",        // if using subdomains app./api.
+        });
+
+// then your JSON response (omit password)
+        return res.status(200).json({
+            success: true,
+            message: "Signed in",
+            data: { user: { id: user._id, name: user.name, email: user.email, isAdmin: user.isAdmin } }
+        });
+
 
     }catch(error){
         next(error);
 
     }
 
-}
+};
 
 export const signOut = async (req, res, next) => {
+    try {
+        const isProd = process.env.NODE_ENV === "production";
+        res.clearCookie("token", {
+            httpOnly: true,
+            secure: isProd,
+            sameSite: isProd ? "none" : "lax",
+            // domain: ".yourdomain.com",
+        });
+        return res.status(200).json({ success: true, message: "Signed out" });
+    } catch (err) {
+        next(err);
+    }
+};
 
-
-}
